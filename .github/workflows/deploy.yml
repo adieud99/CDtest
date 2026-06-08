@@ -1,10 +1,33 @@
-name: Deploy to EC2
-on:
-  push:
-    branches: [ main ]      
-  workflow_dispatch:         
+#name: Deploy to EC2
+#on:
+#  push:
+#    branches: [ main ]      
+#  workflow_dispatch:         
 # main에 push될 때만 배포
 # 수동 실행 버튼(테스트용)
+#jobs:
+#  deploy:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: SSH로 EC2 배포
+#        uses: appleboy/ssh-action@v1
+#        with:
+#          host: ${{ secrets.EC2_HOST }}
+#          username: ${{ secrets.EC2_USER }}
+#          key: ${{ secrets.EC2_SSH_KEY }}
+#          script: |
+#            set -e                              
+#            cd /var/www/mysite
+#            git pull origin main                
+#            sudo nginx -t                       
+#            sudo systemctl reload nginx 
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -16,8 +39,70 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            set -e                              
+            set -e
             cd /var/www/mysite
-            git pull origin main                
-            sudo nginx -t                       
-            sudo systemctl reload nginx 
+            git pull origin main
+            sudo nginx -t
+            sudo systemctl reload nginx
+
+      - name: 배포 성공 알림 (Teams)
+        if: success()
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+        run: |
+          curl -s -H "Content-Type: application/json" -d '{
+            "type": "message",
+            "attachments": [{
+              "contentType": "application/vnd.microsoft.card.adaptive",
+              "contentUrl": null,
+              "content": {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.4",
+                "body": [
+                  { "type": "TextBlock", "size": "Large", "weight": "Bolder", "color": "Good", "text": "✅ EC2 배포 성공" },
+                  { "type": "FactSet", "facts": [
+                    { "title": "Repo", "value": "${{ github.repository }}" },
+                    { "title": "Branch", "value": "${{ github.ref_name }}" },
+                    { "title": "By", "value": "${{ github.actor }}" },
+                    { "title": "Commit", "value": "${{ github.sha }}" }
+                  ]}
+                ],
+                "actions": [
+                  { "type": "Action.OpenUrl", "title": "실행 로그 보기",
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
+                ]
+              }
+            }]
+          }' "$TEAMS_WEBHOOK"
+
+      - name: 배포 실패 알림 (Teams)
+        if: failure()
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+        run: |
+          curl -s -H "Content-Type: application/json" -d '{
+            "type": "message",
+            "attachments": [{
+              "contentType": "application/vnd.microsoft.card.adaptive",
+              "contentUrl": null,
+              "content": {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.4",
+                "body": [
+                  { "type": "TextBlock", "size": "Large", "weight": "Bolder", "color": "Attention", "text": "❌ EC2 배포 실패" },
+                  { "type": "FactSet", "facts": [
+                    { "title": "Repo", "value": "${{ github.repository }}" },
+                    { "title": "Branch", "value": "${{ github.ref_name }}" },
+                    { "title": "By", "value": "${{ github.actor }}" },
+                    { "title": "Commit", "value": "${{ github.sha }}" }
+                  ]}
+                ],
+                "actions": [
+                  { "type": "Action.OpenUrl", "title": "에러 로그 보기",
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
+                ]
+              }
+            }]
+          }' "$TEAMS_WEBHOOK"
